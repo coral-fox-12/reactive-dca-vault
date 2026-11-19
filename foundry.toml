@@ -3,4 +3,7 @@ src = "src"
 out = "out"
 libs = ["lib"]
 
+# vm.deployCode reads the precompiled Uniswap V2 artifacts (see artifacts-v2/README.md).
+fs_permissions = [{ access = "read", path = "./artifacts-v2" }]
+
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options

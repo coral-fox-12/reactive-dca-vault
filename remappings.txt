@@ -1,1 +1,5 @@
 @reactive/=lib/reactive-lib-omni/
+v2-core/=lib/v2-core/
+v2-periphery/=lib/v2-periphery/
+@uniswap/v2-core/=lib/v2-core/
+@uniswap/lib/=lib/solidity-lib/
