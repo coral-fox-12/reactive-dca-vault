@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reactive DCA Vault — live dashboard</title>
+<style>
+  :root { --bg:#0d1117; --card:#161b22; --line:#30363d; --text:#e6edf3; --muted:#8b949e;
+          --accent:#58a6ff; --green:#3fb950; --amber:#d29922; --red:#f85149; --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:16px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; }
+  .wrap { max-width:960px; margin:0 auto; padding:24px 16px 64px; }
+  header { margin-bottom:20px; }
+  h1 { font-size:30px; margin:0 0 4px; }
+  h1 .tag { font-size:12px; vertical-align:middle; }
+  .sub { color:var(--muted); margin:0; }
+  .tag { display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; font-weight:600; border:1px solid var(--line); color:var(--muted); }
+  .tag.live { color:var(--green); border-color:var(--green); }
+  .tag.snap { color:var(--amber); border-color:var(--amber); }
+  .tag.testnet { color:var(--accent); border-color:var(--accent); }
+  .tag.paused { color:var(--red); border-color:var(--red); }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:18px 20px; margin:16px 0; }
+  .card h2 { margin:0 0 10px; font-size:19px; }
+  .card h2 .tag { margin-left:8px; }
+  .banner { border:1px solid var(--red); background:#2d1215; border-radius:12px; padding:16px 20px; margin:16px 0; }
+  .banner h2 { margin:0 0 6px; font-size:18px; color:#ffb4b0; }
+  .banner p { margin:4px 0; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  th, td { text-align:left; padding:8px 6px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--muted); font-weight:600; }
+  tr:last-child td { border-bottom:none; }
+  .mono { font-family:var(--mono); font-size:13px; word-break:break-all; }
+  a { color:var(--accent); text-decoration:none; }
+  a:hover { text-decoration:underline; }
+  .num { font-family:var(--mono); font-size:15px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:12px; }
+  .stat { background:#0d1117; border:1px solid var(--line); border-radius:10px; padding:12px 14px; }
+  .stat .label { color:var(--muted); font-size:13px; }
+  .stat .value { font-family:var(--mono); font-size:20px; margin:2px 0; }
+  .stat .src { font-size:12px; color:var(--muted); }
+  .src.live { color:var(--green); } .src.snap { color:var(--amber); }
+  ol.steps { margin:8px 0 0; padding-left:22px; }
+  ol.steps li { margin:8px 0; }
+  ol.steps b { color:var(--accent); }
+  footer { color:var(--muted); font-size:13px; margin-top:28px; }
+  footer a { color:var(--muted); text-decoration:underline; }
+  .note { font-size:13px; color:var(--muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>Reactive DCA Vault <span class="tag testnet">TESTNET ONLY</span> <span class="tag" id="dataTag">checking live data…</span></h1>
+  <p class="sub">A self-running cross-chain DCA vault — set a schedule once, the vault buys for you.
+  Built for the <a href="https://dorahacks.io/hackathon/reactive-omni-buildathon/detail">Reactive Omni Buildathon</a>
+  (“Set It and Forget It” track, $2,000 1st prize). No bot, no keeper: a reactive contract on
+  <b>Lasna</b> fires on a CRON schedule and calls back to <b>Base Sepolia</b>, where the executor swaps on Uniswap V2.</p>
+</header>
+
+<div class="banner" id="statusBanner">
+  <h2>⏸ Schedule currently PAUSED — unpaid SYSTEM debt</h2>
+  <p>SYSTEM debt on the DcaReactive contract is <b class="num" id="debtBanner">0.0167138 lREACT</b>,
+     larger than the contract's own balance of <b class="num" id="balBanner">0.0074661 lREACT</b>.
+     While debt &gt; 0 the CRON subscription stays paused and the next tick never fires.</p>
+  <p class="note">How debt works, in one line: every tick accrues a fee on Reactive's SYSTEM contract
+     (<span class="mono">0x8888…8888</span>); topping the reactive contract up and calling
+     <span class="mono">coverDebt()</span> pays it from the contract's own balance and resumes the schedule.</p>
+  <p class="note" id="statusNote">Status from verified snapshot, 19 Nov 2026 ~16:05 +07.</p>
+</div>
+
+<div class="card">
+  <h2>📋 Schedule #0 <span class="tag" id="schedTag">snapshot</span></h2>
+  <div class="grid">
+    <div class="stat"><div class="label">Token bought</div><div class="value">DCAT</div><div class="src">DcaToken (demo ERC20)</div></div>
+    <div class="stat"><div class="label">Amount per buy</div><div class="value">0.0001 ETH</div><div class="src">from the vault, per tick</div></div>
+    <div class="stat"><div class="label">Interval</div><div class="value">Cron100</div><div class="src">≈ 1 tick / 2 min</div></div>
+    <div class="stat"><div class="label">Ticks / buys executed</div><div class="value"><span id="tickCount">3</span> / <span id="execCount">2</span></div><div class="src" id="tickSrc">snapshot</div></div>
+    <div class="stat"><div class="label">Last executed tick</div><div class="value" id="lastTick">3</div><div class="src" id="lastTickSrc">snapshot</div></div>
+    <div class="stat"><div class="label">Schedule active</div><div class="value" id="schedActive">true</div><div class="src" id="schedActiveSrc">snapshot</div></div>
+  </div>
+  <p class="note">User: <a class="mono" href="https://sepolia.basescan.org/address/0x5Cd93f7921e5e4E2701eac7C8B0587Fbd4d8282D">0x5Cd93f7921e5e4E2701eac7C8B0587Fbd4d8282D</a>
+  (fresh testnet-only wallet). Schedule created on Lasna, tx
+  <a class="mono" href="https://lasna.reactscan.net/tx/0x4af773eabbf0a6496e71cdae2393cfce063ad62e045ad6a4dc75766661efe62a">0x4af773ea…efe62a</a>.</p>
+</div>
+
+<div class="card">
+  <h2>💱 Executed buys — full loop proven twice</h2>
+  <table>
+    <tr><th>Buy</th><th>Spent</th><th>Received</th><th>Price</th><th>Base Sepolia callback tx</th></tr>
+    <tr>
+      <td>#1 · tick 2<br><span class="note">Lasna 8720601</span></td>
+      <td class="num">0.0001 ETH</td><td class="num">906.61 DCAT</td>
+      <td class="num">9,066,100 DCAT/ETH</td>
+      <td><a class="mono" href="https://sepolia.basescan.org/tx/0x34c20415df89ca444d456599fc81d416dfb1d3ae9d8db011b0a729a4edeec17d">0x34c20415…eec17d</a><br><span class="note">block 60779144 · status 1</span></td>
+    </tr>
+    <tr>
+      <td>#2 · tick 3<br><span class="note">Lasna 8720901</span></td>
+      <td class="num">0.0001 ETH</td><td class="num">755.70 DCAT</td>
+      <td class="num">7,557,000 DCAT/ETH</td>
+      <td><a class="mono" href="https://sepolia.basescan.org/tx/0x980aa2211f2244a236c58efe3a1c8c457b930648600bd7ba4e1280d4f1905b41">0x980aa221…1905b41</a><br><span class="note">block 60780743 · status 1</span></td>
+    </tr>
+    <tr>
+      <td><b>Average</b></td>
+      <td class="num"><b>0.0002 ETH</b></td><td class="num"><b>1,662.31 DCAT</b></td>
+      <td class="num"><b>8,311,550 DCAT/ETH</b><br><span class="note">≈ 1.203 × 10⁻⁷ ETH / DCAT</span></td>
+      <td><span class="note">Buy #2 paid less DCAT per ETH than #1 — normal constant-product price impact as the DCAT reserve shrank.</span></td>
+    </tr>
+  </table>
+  <p class="note">Each buy is one full loop: Lasna CRON tick → <span class="mono">react()</span> →
+     callback to the executor on Base Sepolia → vault spends → Uniswap V2 swap → DCAT straight to the user.
+     Receipts verified on-chain (vault <span class="mono">Spent</span> → WETH → pair <span class="mono">Swap</span> →
+     executor <span class="mono">BuyExecuted</span>).</p>
+</div>
+
+<div class="card">
+  <h2>📊 Live balances <span class="tag" id="balTag">snapshot</span></h2>
+  <div class="grid">
+    <div class="stat"><div class="label">Vault ETH (Base Sepolia)</div><div class="value" id="vaultEth">0 ETH</div><div class="src" id="vaultEthSrc">snapshot — both buys spent the 0.0002 deposit</div></div>
+    <div class="stat"><div class="label">Wallet DCAT</div><div class="value" id="walletDcat">991,662.31</div><div class="src" id="walletDcatSrc">snapshot</div></div>
+    <div class="stat"><div class="label">DcaReactive lREACT (Lasna)</div><div class="value" id="reactiveLreact">0.0074661</div><div class="src" id="reactiveLreactSrc">snapshot</div></div>
+    <div class="stat"><div class="label">SYSTEM debt (Lasna)</div><div class="value" id="systemDebt">0.0167138</div><div class="src" id="systemDebtSrc">snapshot</div></div>
+    <div class="stat"><div class="label">DCAT/WETH pair reserves</div><div class="value" id="pairReserves">8,337.69 DCAT<br>+ 0.0012 ETH</div><div class="src" id="pairReservesSrc">snapshot</div></div>
+  </div>
+  <p class="note">Live values are read in your browser straight from the public RPCs
+     (<span class="mono">sepolia.base.org</span>, <span class="mono">lasna-rpc.rnk.dev</span>) via JSON-RPC
+     <span class="mono">eth_getBalance</span> / <span class="mono">eth_call</span> — no server, no cache.
+     If a call fails, the verified snapshot (19 Nov 2026 ~16:05 +07) is shown instead and labelled as such.
+     Nothing here is faked: a value is either live from the chain or explicitly a snapshot.</p>
+</div>
+
+<div class="card">
+  <h2>🔗 Contracts</h2>
+  <table>
+    <tr><th>Contract</th><th>Chain</th><th>Address</th></tr>
+    <tr><td>DcaReactive <span class="note">(CRON scheduler)</span></td><td>Lasna</td>
+        <td><a class="mono" href="https://lasna.reactscan.net/address/0x09F73B2A778D834FD9D6c2077C0143ceF280C576">0x09F73B2A778D834FD9D6c2077C0143ceF280C576</a></td></tr>
+    <tr><td>DcaVault <span class="note">(holds user ETH)</span></td><td>Base Sepolia</td>
+        <td><a class="mono" href="https://sepolia.basescan.org/address/0x8f1ee4c7f0e0a1c8efe05dd177691dbb406bb4a1">0x8f1ee4c7f0e0a1c8efe05dd177691dbb406bb4a1</a></td></tr>
+    <tr><td>DcaExecutor <span class="note">(callback → swap)</span></td><td>Base Sepolia</td>
+        <td><a class="mono" href="https://sepolia.basescan.org/address/0x7a1f950154978f4aaa53bb9d257c0f7b3375fa14">0x7a1f950154978f4aaa53bb9d257c0f7b3375fa14</a></td></tr>
+    <tr><td>DCAT token <span class="note">(demo ERC20, 1M supply)</span></td><td>Base Sepolia</td>
+        <td><a class="mono" href="https://sepolia.basescan.org/address/0x09F73B2A778D834FD9D6c2077C0143ceF280C576">0x09F73B2A778D834FD9D6c2077C0143ceF280C576</a></td></tr>
+    <tr><td>Uniswap V2 pair <span class="note">(DCAT/WETH)</span></td><td>Base Sepolia</td>
+        <td><a class="mono" href="https://sepolia.basescan.org/address/0x5D52B2d78ed319dD7bD11a38Ad623eB12d93eB17">0x5D52B2d78ed319dD7bD11a38Ad623eB12d93eB17</a></td></tr>
+    <tr><td>Uniswap V2 factory / router</td><td>Base Sepolia</td>
+        <td><a class="mono" href="https://sepolia.basescan.org/address/0xE0952899Cf342939fe7891726103fFa8B9e5dC0c">0xE0952899…5dC0c</a> /
+            <a class="mono" href="https://sepolia.basescan.org/address/0x332789A06c8696df1dc7D13572f832c9aE0FAA3C">0x332789A0…FAA3C</a></td></tr>
+    <tr><td>SYSTEM contract <span class="note">(Reactive)</span></td><td>Lasna</td>
+        <td><a class="mono" href="https://lasna.reactscan.net/address/0x8888888888888888888888888888888888888888">0x8888888888888888888888888888888888888888</a></td></tr>
+    <tr><td>Ping / Pong <span class="note">(step-2 loop proof, 15/15 callbacks)</span></td><td>Lasna / Base Sepolia</td>
+        <td><a class="mono" href="https://lasna.reactscan.net/address/0xDB4D23b94FA88C9e38c844d2e628D757f9D257Ae">0xDB4D23b9…257Ae</a> /
+            <a class="mono" href="https://sepolia.basescan.org/address/0x745b0e9a3b8516b40443a9ac841f5a6d7a933b07">0x745b0e9a…33b07</a></td></tr>
+  </table>
+  <p class="note">Note: the DcaReactive address on Lasna is the same string as the DCAT token on Base Sepolia —
+     same deployer wallet, same nonce (4), different chains. Harmless coincidence, verified on-chain.</p>
+</div>
+
+<div class="card">
+  <h2>⚙️ How it works</h2>
+  <ol class="steps">
+    <li><b>Fund once.</b> The user deposits ETH into the DcaVault on Base Sepolia and creates a schedule
+        (token, fixed amount, interval) — then never touches it again.</li>
+    <li><b>CRON fires.</b> Reactive's SYSTEM contract emits a Cron100 event on Lasna roughly every 2 minutes;
+        the DcaReactive contract is subscribed and its <span class="mono">react()</span> runs — no bot, no keeper, no polling.</li>
+    <li><b>Callback.</b> For each due schedule, DcaReactive requests a cross-chain callback to the DcaExecutor
+        on Base Sepolia (only the real reactive contract can trigger it — the executor checks the callback sender).</li>
+    <li><b>Swap.</b> The executor pulls the fixed amount from the vault, swaps it for DCAT on Uniswap V2
+        (5% max slippage, on-chain price check), and sends the tokens straight to the user.</li>
+  </ol>
+  <p class="note">Cost reality (measured live): ≈ 0.017 lREACT per buy, dominated by the callback — not the tick rate.
+     The schedule pauses itself when SYSTEM debt exceeds the contract's balance; topping up + <span class="mono">coverDebt()</span> resumes it.
+     Next steps for this build: resume the schedule, run a multi-day live cycle, demo video &lt; 3 min, DoraHacks submit by 5 Dec 2026.</p>
+</div>
+
+<footer>
+  Source: <a href="https://github.com/coral-fox-12/reactive-dca-vault">github.com/coral-fox-12/reactive-dca-vault</a> ·
+  Hackathon: <a href="https://dorahacks.io/hackathon/reactive-omni-buildathon/detail">Reactive Omni Buildathon</a> ·
+  All funds are testnet (Base Sepolia ETH + Lasna lREACT) — $0 real money.
+  Dashboard data: live JSON-RPC where labelled “live”, otherwise verified snapshot 19 Nov 2026 ~16:05 +07.
+</footer>
+
+</div>
+
+<script>
+(function () {
+  var BASE = "https://sepolia.base.org";
+  var LASNA = "https://lasna-rpc.rnk.dev/";
+  var VAULT = "0x8f1ee4c7f0e0a1c8efe05dd177691dbb406bb4a1";
+  var WALLET = "0x5Cd93f7921e5e4E2701eac7C8B0587Fbd4d8282D";
+  var DCAT = "0x09F73B2A778D834FD9D6c2077C0143ceF280C576";
+  var PAIR = "0x5D52B2d78ed319dD7bD11a38Ad623eB12d93eB17";
+  var REACTIVE = "0x09F73B2A778D834FD9D6c2077C0143ceF280C576";
+  var SYSTEM = "0x8888888888888888888888888888888888888888";
+  var E18 = 10n ** 18n;
+  var liveCount = 0, totalCalls = 0;
+
+  function rpc(url, method, params) {
+    return new Promise(function (resolve, reject) {
+      var ctl = new AbortController();
+      var t = setTimeout(function () { ctl.abort(); }, 10000);
+      fetch(url, { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: method, params: params }), signal: ctl.signal })
+        .then(function (r) { clearTimeout(t); if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+        .then(function (j) { if (j.error) throw new Error(j.error.message || "rpc error"); resolve(j.result); })
+        .catch(function (e) { clearTimeout(t); reject(e); });
+    });
+  }
+  function call(url, to, data) { return rpc(url, "eth_call", [{ to: to, data: data }, "latest"]); }
+  function bal(url, addr) { return rpc(url, "eth_getBalance", [addr, "latest"]); }
+  function padAddr(a) { return "0x" + "0".repeat(24) + a.slice(2).toLowerCase(); }
+  function u256(hex) { return BigInt(hex); }
+  function fmtEth(wei, dp) {
+    dp = dp === undefined ? 7 : dp;
+    var neg = wei < 0n; if (neg) wei = -wei;
+    var whole = wei / E18, frac = wei % E18;
+    var s = frac.toString().padStart(18, "0").slice(0, dp).replace(/0+$/, "");
+    return (neg ? "-" : "") + whole.toString() + (s ? "." + s : "");
+  }
+  function fmtNum(n, dp) {
+    var s = Number(n).toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: dp === undefined ? 2 : dp });
+    return s;
+  }
+  function setLive(id, srcId, text) {
+    var el = document.getElementById(id); if (el) el.textContent = text;
+    var s = document.getElementById(srcId);
+    if (s) { s.textContent = "live · just now"; s.className = "src live"; }
+    liveCount++;
+  }
+  function noteDone() {
+    totalCalls++;
+    var tag = document.getElementById("dataTag");
+    var balTag = document.getElementById("balTag");
+    if (liveCount > 0) {
+      tag.textContent = "LIVE data"; tag.className = "tag live";
+      balTag.textContent = "live + snapshot"; balTag.className = "tag live";
+    } else if (totalCalls >= 8) {
+      tag.textContent = "snapshot (RPC unreachable)"; tag.className = "tag snap";
+      balTag.textContent = "snapshot"; balTag.className = "tag snap";
+    }
+  }
+  function refreshStatus(debtWei, balWei) {
+    var banner = document.getElementById("statusBanner");
+    var note = document.getElementById("statusNote");
+    if (debtWei !== null && balWei !== null) {
+      document.getElementById("debtBanner").textContent = fmtEth(debtWei) + " lREACT";
+      document.getElementById("balBanner").textContent = fmtEth(balWei) + " lREACT";
+      if (debtWei > 0n) {
+        banner.querySelector("h2").textContent = "⏸ Schedule currently PAUSED — unpaid SYSTEM debt";
+        note.textContent = "Status from live chain data · just now.";
+      } else {
+        banner.style.borderColor = "var(--green)"; banner.style.background = "#12261a";
+        banner.querySelector("h2").textContent = "▶ Schedule RUNNING — no unpaid SYSTEM debt";
+        banner.querySelector("h2").style.color = "#7ee2a0";
+        note.textContent = "Status from live chain data · just now.";
+      }
+    }
+  }
+
+  var liveDebt = null, liveBal = null;
+
+  function refresh() {
+  // Vault ETH balance (Base Sepolia)
+  bal(BASE, VAULT).then(function (h) { setLive("vaultEth", "vaultEthSrc", fmtEth(u256(h)) + " ETH"); noteDone(); })
+    .catch(function () { noteDone(); });
+  // Wallet DCAT balance (Base Sepolia)
+  call(BASE, DCAT, "0x70a08231" + padAddr(WALLET).slice(2)).then(function (h) {
+    setLive("walletDcat", "walletDcatSrc", fmtNum(fmtEth(u256(h)))); noteDone();
+  }).catch(function () { noteDone(); });
+  // Pair reserves (Base Sepolia) — getReserves() returns (reserve0, reserve1, timestamp); token0 is DCAT (lower address than WETH)
+  call(BASE, PAIR, "0x0902f1ac").then(function (h) {
+    var r0 = u256("0x" + h.slice(2, 66)), r1 = u256("0x" + h.slice(66, 130));
+    setLive("pairReserves", "pairReservesSrc", fmtNum(fmtEth(r0)) + " DCAT + " + fmtEth(r1, 7) + " ETH");
+    noteDone();
+  }).catch(function () { noteDone(); });
+  // DcaReactive lREACT balance (Lasna)
+  bal(LASNA, REACTIVE).then(function (h) {
+    liveBal = u256(h);
+    setLive("reactiveLreact", "reactiveLreactSrc", fmtEth(liveBal)); noteDone(); refreshStatus(liveDebt, liveBal);
+  }).catch(function () { noteDone(); });
+  // SYSTEM debt (Lasna)
+  call(LASNA, SYSTEM, "0x9b6c56ec" + padAddr(REACTIVE).slice(2)).then(function (h) {
+    liveDebt = u256(h);
+    setLive("systemDebt", "systemDebtSrc", fmtEth(liveDebt)); noteDone(); refreshStatus(liveDebt, liveBal);
+  }).catch(function () { noteDone(); });
+  // tickCount / executionCount (Lasna)
+  call(LASNA, REACTIVE, "0xb9ffc934").then(function (h) {
+    setLive("tickCount", "tickSrc", u256(h).toString()); noteDone();
+  }).catch(function () { noteDone(); });
+  call(LASNA, REACTIVE, "0xa17ecef3").then(function (h) {
+    setLive("execCount", "tickSrc", u256(h).toString()); noteDone();
+  }).catch(function () { noteDone(); });
+  // schedules(0): (user, tokenOut, amountIn, intervalTicks, lastExecutedTick, active)
+  call(LASNA, REACTIVE, "0xbdc6d9ab" + "0".repeat(63) + "0").then(function (h) {
+    var slots = [];
+    for (var i = 0; i < 6; i++) slots.push(h.slice(2 + i * 64, 2 + (i + 1) * 64));
+    var lastTick = u256("0x" + slots[4]).toString();
+    var active = slots[5].slice(-1) !== "0";
+    setLive("lastTick", "lastTickSrc", lastTick);
+    setLive("schedActive", "schedActiveSrc", active ? "true" : "false");
+    var st = document.getElementById("schedTag");
+    st.textContent = "live"; st.className = "tag live";
+    noteDone();
+  }).catch(function () { noteDone(); });
+  }
+
+  refresh();
+  // Refresh live values every 60s (each call independent; failures keep the last shown value)
+  setInterval(refresh, 60000);
+})();
+</script>
+</body>
+</html>
